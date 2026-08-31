@@ -1,0 +1,7 @@
+name: agentic-enrolment-credit-mapping
+
+# Placeholder for future local development services.
+# Future services may include PostgreSQL, backend, rag-service,
+# a vector database, and optionally the frontend.
+# This file does not couple production deployment of the services.
+services: {}
