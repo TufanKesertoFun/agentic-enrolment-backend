@@ -30,6 +30,7 @@ from app.models import (
     Program,
     Role,
     Student,
+    StudentProfile,
     User,
     UserRole,
 )
@@ -363,6 +364,32 @@ async def _get_or_create_demo_student(
     return student
 
 
+async def _get_or_create_demo_student_profile(
+    session: AsyncSession,
+    student: Student,
+    country: Country,
+) -> StudentProfile:
+    result = await session.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student.id),
+    )
+    profile = result.scalar_one_or_none()
+    if profile is not None:
+        return profile
+
+    profile = StudentProfile(
+        student=student,
+        country=country,
+        phone="+61000000000",
+        address_line_1="1 Demo Street",
+        city="Adelaide",
+        state_region="SA",
+        postal_code="5000",
+    )
+    session.add(profile)
+    await session.flush()
+    return profile
+
+
 async def _get_or_create_previous_education(
     session: AsyncSession,
     student: Student,
@@ -501,6 +528,11 @@ async def seed_development_data(
         country=australia,
         institution=demo_institution,
         program=demo_program,
+    )
+    await _get_or_create_demo_student_profile(
+        session=session,
+        student=demo_student,
+        country=australia,
     )
     previous_education = await _get_or_create_previous_education(
         session=session,

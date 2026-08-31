@@ -41,38 +41,40 @@ Success response:
 }
 ```
 
-Failure response for unknown email or bad password:
-
-```json
-{
-  "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "Invalid email or password",
-    "details": null
-  }
-}
-```
-
-Unknown email and incorrect password intentionally return the same `401` response.
+Unknown email and incorrect password intentionally return the same `401 INVALID_CREDENTIALS` response.
 
 ### GET `/api/v1/auth/me`
 
 Returns the current authenticated identity. Requires `Authorization: Bearer <token>`.
 
-Success response:
-
-```json
-{
-  "id": "<user-id>",
-  "email": "demo.student@example.invalid",
-  "first_name": "Demo",
-  "last_name": "Student",
-  "preferred_name": "Demo",
-  "roles": ["STUDENT"]
-}
-```
-
 The response does not include password, password hash, student profile details, documents, or academic records.
+
+## Student Self Service
+
+All student endpoints require `Authorization: Bearer <token>` and resolve the student from the authenticated user id through `Student.user_id`. The frontend never sends a trusted `student_id`.
+
+- `GET /api/v1/students/me`
+- `GET /api/v1/students/me/profile`
+- `PATCH /api/v1/students/me/profile`
+- `GET /api/v1/students/me/enrolment-applications`
+- `POST /api/v1/students/me/enrolment-applications`
+- `GET /api/v1/students/me/enrolment-applications/{application_id}`
+- `POST /api/v1/students/me/enrolment-applications/{application_id}/submit`
+
+Profile updates are limited to `StudentProfile` fields: date of birth, phone, address lines, city, state/region, postal code, and country. A missing profile may be created by `PATCH /students/me/profile`.
+
+Creating an enrolment application accepts only `program_id`. The backend sets `student_id` from authentication and creates the application with `DRAFT` status. Submitting an application supports only `DRAFT` to `SUBMITTED` and sets `submitted_at` to the current UTC time. Invalid transitions return `409 CONFLICT`.
+
+## Staff Student Search
+
+`GET /api/v1/institutions/{institution_id}/students/{student_number}` returns a safe student summary for authorized staff roles only:
+
+- `LECTURER`
+- `ENROLMENT_OFFICER`
+- `CREDIT_MAPPING_OFFICER`
+- `ADMINISTRATOR`
+
+`STUDENT` receives `403 ACCESS_DENIED`. The endpoint includes `institution_id` because student numbers are not globally unique.
 
 ## Authorization Errors
 
@@ -92,6 +94,6 @@ Swagger is available at http://localhost:8000/docs and OpenAPI JSON is available
 
 Protected endpoints use HTTP Bearer authentication in OpenAPI, so Swagger displays the Authorize button.
 
-## Not Implemented In T004
+## Not Implemented After T005
 
-T004 does not implement student profile APIs, student search, enrolment workflows, document upload, object storage, credit mapping workflow endpoints, AI recommendations, RAG, chatbot, voice, frontend login UI, or university SSO.
+T005 does not implement document upload, previous education APIs, qualifications APIs, credit mapping workflow endpoints, staff enrolment decisions, object storage, AI recommendations, RAG, chatbot, voice, frontend login UI, or university SSO.
