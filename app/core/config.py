@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     rag_service_base_url: str = "http://localhost:8001"
     document_storage_provider: str = "local"
     jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = Field(default=60, ge=1)
+    demo_user_password: str = ""
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     model_config = SettingsConfigDict(

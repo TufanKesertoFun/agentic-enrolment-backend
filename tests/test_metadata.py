@@ -1,11 +1,13 @@
-from sqlalchemy import select
+from typing import cast
+
+from sqlalchemy import Table, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import configure_mappers
 from sqlalchemy.schema import CreateTable
 
 import app.models  # noqa: F401
 from app.infrastructure.database.base import Base
-from app.models import Student
+from app.models import Student, User
 
 EXPECTED_TABLES = {
     "countries",
@@ -50,3 +52,10 @@ def test_student_number_lookup_query_compiles_for_postgresql() -> None:
     compiled = statement.compile(dialect=postgresql.dialect())
 
     assert "students.student_number" in str(compiled)
+
+
+def test_user_password_hash_is_nullable_and_not_exposed_by_domain_schemas() -> None:
+    table = cast(Table, User.__table__)
+
+    assert "password_hash" in table.c
+    assert table.c.password_hash.nullable is True

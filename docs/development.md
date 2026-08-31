@@ -1,13 +1,37 @@
 # Development
 
-This repository contains the backend application for the Agentic AI Enrolment & Credit Mapping System.
+This backend is independently developed and deployed from `agentic-enrolment-backend`.
 
-The three applications are developed, tested, versioned, and deployed from separate repositories:
+## Current Scope
 
-- `agentic-enrolment-frontend`: Lovable / React / TypeScript / Vite frontend.
-- `agentic-enrolment-backend`: Python FastAPI backend.
-- `agentic-enrolment-rag`: Python FastAPI RAG service.
+Implemented foundations:
 
-Applications communicate only through API boundaries. Do not introduce shared source-code dependencies between repositories.
+- FastAPI application structure
+- PostgreSQL configuration with async SQLAlchemy
+- Alembic migrations
+- core student, enrolment, document, credit mapping, country, institution, user, and role data model
+- development JWT authentication
+- Argon2 password hashing
+- RBAC dependency helpers
+- fake development users and roles
 
-No database models, authentication, student APIs, document upload, RAG, LLM, chatbot, voice processing, or credit mapping logic is implemented by this restructure.
+Not yet implemented:
+
+- student profile business APIs
+- enrolment workflows
+- document upload/storage
+- credit mapping workflow APIs
+- RAG/LLM integration
+- chatbot or voice features
+- university SSO/OIDC
+
+## Local Auth Setup
+
+Set local-only values before authenticated development runs:
+
+```powershell
+JWT_SECRET=<local-development-secret-at-least-32-bytes>
+DEMO_USER_PASSWORD=development-password
+```
+
+Never commit `.env` or real secrets.

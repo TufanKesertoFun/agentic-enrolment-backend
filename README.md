@@ -2,7 +2,7 @@
 
 Python FastAPI backend foundation for the Agentic AI Enrolment & Credit Mapping System.
 
-This backend is independently deployable and will remain the business and authorization authority for student records, enrolment workflows, document access, credit mapping decisions, staff workflows, audit, and RAG orchestration.
+This backend is independently deployable and remains the business and authorization authority for student records, enrolment workflows, document access, credit mapping decisions, staff workflows, audit, and RAG orchestration.
 
 ## Technology
 
@@ -13,6 +13,8 @@ This backend is independently deployable and will remain the business and author
 - SQLAlchemy 2.x
 - PostgreSQL with asyncpg
 - Alembic
+- JWT bearer authentication for development
+- Argon2 password hashing through `pwdlib`
 - pytest and pytest-asyncio
 - httpx
 - Ruff
@@ -21,6 +23,7 @@ This backend is independently deployable and will remain the business and author
 ## Architecture
 
 - `app/api/`: FastAPI routers and endpoint modules. Routes stay thin and delegate business behavior to application services in later tasks.
+- `app/auth/`: authentication provider abstraction, JWT provider, password hashing, authenticated user context, FastAPI auth dependencies, and RBAC policy helpers.
 - `app/application/`: use cases, handlers, and lightweight CQRS-style command/query conventions.
 - `app/domain/`: domain entities, aggregate roots, and domain exceptions.
 - `app/infrastructure/`: database sessions, persistence implementation, storage, and provider-specific infrastructure.
@@ -32,16 +35,11 @@ The API is versioned under `/api/v1`. The backend may call the RAG service in fu
 
 ## Run Locally
 
-Create a virtual environment:
+Create and activate a virtual environment:
 
 ```powershell
 python -m venv .venv
-```
-
-Activate it on Windows:
-
-```powershell
-.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 ```
 
 Install dependencies:
@@ -51,16 +49,75 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
+Create a local `.env` from `.env.example` and set explicit development-only values:
+
+```powershell
+JWT_SECRET=<local-development-secret-at-least-32-bytes>
+DEMO_USER_PASSWORD=development-password
+```
+
+Do not commit `.env` or real secrets.
+
+Apply migrations and seed development data:
+
+```powershell
+python -m alembic upgrade head
+python -m app.infrastructure.database.seed
+```
+
 Run the API:
 
 ```powershell
-uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 ## API Documentation
 
 - Swagger: http://localhost:8000/docs
 - OpenAPI: http://localhost:8000/openapi.json
+
+Swagger shows Bearer authentication for protected endpoints. Use `POST /api/v1/auth/login` to obtain a development access token, then click Authorize and paste the token.
+
+## Authentication Endpoints
+
+### POST `/api/v1/auth/login`
+
+Request:
+
+```json
+{
+  "email": "demo.student@example.invalid",
+  "password": "development-password"
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+
+Unknown email and invalid password return the same generic `401 INVALID_CREDENTIALS` response.
+
+### GET `/api/v1/auth/me`
+
+Requires `Authorization: Bearer <token>`. Returns only the current identity and trusted PostgreSQL roles. It never returns passwords or password hashes.
+
+## Development Users
+
+The development seed creates these fake users when `DEMO_USER_PASSWORD` is configured:
+
+- `demo.student@example.invalid` -> `STUDENT`
+- `demo.lecturer@example.invalid` -> `LECTURER`
+- `demo.enrolment@example.invalid` -> `ENROLMENT_OFFICER`
+- `demo.credit@example.invalid` -> `CREDIT_MAPPING_OFFICER`
+- `demo.admin@example.invalid` -> `ADMINISTRATOR`
+
+The existing fake student number remains `11111`.
 
 ## Health Endpoints
 
@@ -73,13 +130,21 @@ The readiness endpoint checks PostgreSQL connectivity and returns an HTTP failur
 ## Tests
 
 ```powershell
-pytest
+python -m pytest
 ```
 
-## Lint
+Run PostgreSQL-gated tests:
 
 ```powershell
-ruff check .
+$env:RUN_POSTGRES_TESTS='1'
+python -m pytest
+```
+
+## Lint And Type Check
+
+```powershell
+python -m ruff check .
+python -m mypy app tests migrations
 ```
 
 ## Database Development Commands
@@ -87,36 +152,24 @@ ruff check .
 Create migration:
 
 ```powershell
-alembic revision --autogenerate -m "description"
+python -m alembic revision --autogenerate -m "description"
 ```
 
 Apply migration:
 
 ```powershell
-alembic upgrade head
+python -m alembic upgrade head
 ```
 
 Rollback:
 
 ```powershell
-alembic downgrade -1
+python -m alembic downgrade -1
 ```
 
 The T003 core domain schema is created by migration `20260831_0002_core_domain_schema.py`.
+The T004 authentication schema change is created by migration `20260901_0003_add_user_password_hash.py`.
 
-## Development Seed Data
+## Security Limits Still Remaining
 
-Preview seed data without connecting to PostgreSQL:
-
-```powershell
-python -m app.infrastructure.database.seed --dry-run
-```
-
-Seed configured PostgreSQL after applying migrations:
-
-```powershell
-python -m app.infrastructure.database.seed
-```
-
-The development seed contains reference countries, roles, a clearly fake demo student with student number `11111`, and mock historical credit mappings only.
-
+This is a development authentication foundation. Production hardening still needs rate limiting, refresh-token/session strategy, SSO/OIDC integration, audit event persistence, account lockout policy, secret management, stronger operational monitoring, and resource-level authorization policies.

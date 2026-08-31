@@ -10,6 +10,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.password import hash_password, verify_password
+from app.core.config import get_settings
 from app.domain.enums import (
     CreditMappingDecisionValue,
     CreditSystem,
@@ -34,6 +36,10 @@ from app.models import (
 
 DEMO_STUDENT_NUMBER = "11111"
 DEMO_STUDENT_EMAIL = "demo.student@example.invalid"
+DEMO_USER_PASSWORD_SETTING = "DEMO_USER_PASSWORD"
+DEMO_USER_PASSWORD_REQUIRED_MESSAGE = (
+    "DEMO_USER_PASSWORD must be configured to seed authenticated development users."
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,15 @@ class CountrySeed:
     code: str
     name: str
     default_locale: str
+
+
+@dataclass(frozen=True)
+class DevelopmentUserSeed:
+    email: str
+    first_name: str
+    last_name: str
+    preferred_name: str | None
+    role: RoleName
 
 
 @dataclass(frozen=True)
@@ -57,6 +72,7 @@ class MockHistoricalMappingSeed:
 class DevelopmentSeedSpec:
     countries: tuple[CountrySeed, ...]
     roles: tuple[str, ...]
+    development_users: tuple[DevelopmentUserSeed, ...]
     demo_student_number: str
     demo_student_email: str
     mock_historical_mappings: tuple[MockHistoricalMappingSeed, ...]
@@ -66,6 +82,7 @@ class DevelopmentSeedSpec:
 class SeedSummary:
     countries: int
     roles: int
+    development_users: int
     demo_student_number: str
     historical_mappings: int
 
@@ -80,6 +97,43 @@ def build_development_seed_spec() -> DevelopmentSeedSpec:
             CountrySeed(code="GB", name="United Kingdom", default_locale="en-GB"),
         ),
         roles=tuple(role.value for role in RoleName),
+        development_users=(
+            DevelopmentUserSeed(
+                email=DEMO_STUDENT_EMAIL,
+                first_name="Demo",
+                last_name="Student",
+                preferred_name="Demo",
+                role=RoleName.STUDENT,
+            ),
+            DevelopmentUserSeed(
+                email="demo.lecturer@example.invalid",
+                first_name="Demo",
+                last_name="Lecturer",
+                preferred_name="Demo",
+                role=RoleName.LECTURER,
+            ),
+            DevelopmentUserSeed(
+                email="demo.enrolment@example.invalid",
+                first_name="Demo",
+                last_name="Enrolment",
+                preferred_name="Demo",
+                role=RoleName.ENROLMENT_OFFICER,
+            ),
+            DevelopmentUserSeed(
+                email="demo.credit@example.invalid",
+                first_name="Demo",
+                last_name="Credit",
+                preferred_name="Demo",
+                role=RoleName.CREDIT_MAPPING_OFFICER,
+            ),
+            DevelopmentUserSeed(
+                email="demo.admin@example.invalid",
+                first_name="Demo",
+                last_name="Admin",
+                preferred_name="Demo",
+                role=RoleName.ADMINISTRATOR,
+            ),
+        ),
         demo_student_number=DEMO_STUDENT_NUMBER,
         demo_student_email=DEMO_STUDENT_EMAIL,
         mock_historical_mappings=(
@@ -111,6 +165,15 @@ def build_development_seed_spec() -> DevelopmentSeedSpec:
     )
 
 
+def resolve_demo_user_password(explicit_password: str | None = None) -> str:
+    password = (
+        explicit_password if explicit_password is not None else get_settings().demo_user_password
+    )
+    if not password:
+        raise RuntimeError(DEMO_USER_PASSWORD_REQUIRED_MESSAGE)
+    return password
+
+
 async def _get_or_create_country(
     session: AsyncSession,
     seed: CountrySeed,
@@ -136,6 +199,36 @@ async def _get_or_create_role(session: AsyncSession, role_name: RoleName) -> Rol
     session.add(role)
     await session.flush()
     return role
+
+
+async def _get_or_create_development_user(
+    session: AsyncSession,
+    seed: DevelopmentUserSeed,
+    demo_user_password: str,
+) -> User:
+    result = await session.execute(select(User).where(User.email == seed.email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        user = User(
+            email=seed.email,
+            first_name=seed.first_name,
+            last_name=seed.last_name,
+            preferred_name=seed.preferred_name,
+            password_hash=hash_password(demo_user_password),
+            is_active=True,
+        )
+        session.add(user)
+        await session.flush()
+        return user
+
+    user.first_name = seed.first_name
+    user.last_name = seed.last_name
+    user.preferred_name = seed.preferred_name
+    user.is_active = True
+    if not verify_password(demo_user_password, user.password_hash):
+        user.password_hash = hash_password(demo_user_password)
+    await session.flush()
+    return user
 
 
 async def _get_or_create_institution(
@@ -224,24 +317,6 @@ async def _get_or_create_course(
     session.add(course)
     await session.flush()
     return course
-
-
-async def _get_or_create_demo_user(session: AsyncSession) -> User:
-    result = await session.execute(select(User).where(User.email == DEMO_STUDENT_EMAIL))
-    user = result.scalar_one_or_none()
-    if user is not None:
-        return user
-
-    user = User(
-        email=DEMO_STUDENT_EMAIL,
-        first_name="Demo",
-        last_name="Student",
-        preferred_name="Demo",
-        is_active=True,
-    )
-    session.add(user)
-    await session.flush()
-    return user
 
 
 async def _assign_role(session: AsyncSession, user: User, role: Role) -> None:
@@ -382,17 +457,27 @@ async def _get_or_create_historical_mapping(
     return historical_mapping
 
 
-async def seed_development_data(session: AsyncSession) -> SeedSummary:
+async def seed_development_data(
+    session: AsyncSession,
+    demo_user_password: str | None = None,
+) -> SeedSummary:
     spec = build_development_seed_spec()
+    password = resolve_demo_user_password(demo_user_password)
 
     countries = {
         country_seed.code: await _get_or_create_country(session, country_seed)
         for country_seed in spec.countries
     }
     roles = {
-        role_name: await _get_or_create_role(session, RoleName(role_name))
+        RoleName(role_name): await _get_or_create_role(session, RoleName(role_name))
         for role_name in spec.roles
     }
+    development_users = {
+        user_seed.email: await _get_or_create_development_user(session, user_seed, password)
+        for user_seed in spec.development_users
+    }
+    for user_seed in spec.development_users:
+        await _assign_role(session, development_users[user_seed.email], roles[user_seed.role])
 
     australia = countries["AU"]
     demo_institution = await _get_or_create_institution(
@@ -410,11 +495,9 @@ async def seed_development_data(session: AsyncSession) -> SeedSummary:
         institution_type=InstitutionType.COLLEGE,
     )
     demo_program = await _get_or_create_program(session, demo_institution)
-    demo_user = await _get_or_create_demo_user(session)
-    await _assign_role(session, demo_user, roles[RoleName.STUDENT.value])
     demo_student = await _get_or_create_demo_student(
         session=session,
-        user=demo_user,
+        user=development_users[DEMO_STUDENT_EMAIL],
         country=australia,
         institution=demo_institution,
         program=demo_program,
@@ -454,6 +537,7 @@ async def seed_development_data(session: AsyncSession) -> SeedSummary:
     return SeedSummary(
         countries=len(countries),
         roles=len(roles),
+        development_users=len(development_users),
         demo_student_number=demo_student.student_number,
         historical_mappings=historical_mappings,
     )

@@ -118,6 +118,7 @@ class User(UuidPrimaryKeyMixin, TimestampMixin, Base):
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str] = mapped_column(String(120), nullable=False)
     preferred_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     role_assignments: Mapped[list[UserRole]] = relationship(back_populates="user")
@@ -729,3 +730,4 @@ class HistoricalCreditMapping(UuidPrimaryKeyMixin, TimestampMixin, Base):
         if value is not None and self.effective_from is not None and value < self.effective_from:
             raise ValueError("effective_to must be after effective_from")
         return value
+

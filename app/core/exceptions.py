@@ -38,6 +38,37 @@ class ForbiddenException(ApplicationException):
     default_message = "Action is not permitted"
 
 
+class AccessDeniedException(ForbiddenException):
+    code = "ACCESS_DENIED"
+    default_message = "Insufficient permissions"
+
+
+class UnauthorizedException(ApplicationException):
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "UNAUTHORIZED"
+    default_message = "Authentication required"
+
+
+class AuthenticationRequiredException(UnauthorizedException):
+    code = "AUTHENTICATION_REQUIRED"
+    default_message = "Authentication credentials were not provided"
+
+
+class InvalidCredentialsException(UnauthorizedException):
+    code = "INVALID_CREDENTIALS"
+    default_message = "Invalid email or password"
+
+
+class InvalidTokenException(UnauthorizedException):
+    code = "INVALID_TOKEN"
+    default_message = "Invalid access token"
+
+
+class ExpiredTokenException(UnauthorizedException):
+    code = "TOKEN_EXPIRED"
+    default_message = "Access token has expired"
+
+
 class ConflictException(ApplicationException):
     status_code = status.HTTP_409_CONFLICT
     code = "CONFLICT"
