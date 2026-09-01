@@ -35,6 +35,10 @@ class StudentEnrolmentService:
             profile = StudentProfile(student_id=student.id)
 
         updates = request.model_dump(exclude_unset=True)
+        country_id = updates.get("country_id")
+        if country_id is not None and not await self._student_repository.country_exists(country_id):
+            raise NotFoundException(message="Country was not found")
+
         for field_name, value in updates.items():
             setattr(profile, field_name, value)
 

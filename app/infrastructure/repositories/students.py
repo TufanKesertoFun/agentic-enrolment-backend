@@ -52,6 +52,12 @@ class SqlAlchemyStudentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def country_exists(self, country_id: UUID) -> bool:
+        result = await self._session.execute(
+            select(Country.id).where(Country.id == country_id),
+        )
+        return result.scalar_one_or_none() is not None
+
     async def add(self, student: Student) -> Student:
         self._session.add(student)
         await self._session.flush()

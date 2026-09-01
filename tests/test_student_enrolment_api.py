@@ -85,6 +85,11 @@ class FakeStudentRepository:
             for student in students
         }
         self.profiles_by_student_id = {profile.student_id: profile for profile in profiles}
+        self.country_ids = {student.home_country_id for student in students}
+        self.country_ids.update(
+            profile.country_id for profile in profiles if profile.country_id is not None
+        )
+        self.country_exists_calls: list[UUID] = []
 
     async def get_by_id(self, student_id: UUID) -> Student | None:
         return self.students_by_id.get(student_id)
@@ -108,6 +113,10 @@ class FakeStudentRepository:
 
     async def get_profile(self, student_id: UUID) -> StudentProfile | None:
         return self.profiles_by_student_id.get(student_id)
+
+    async def country_exists(self, country_id: UUID) -> bool:
+        self.country_exists_calls.append(country_id)
+        return country_id in self.country_ids
 
     async def add(self, student: Student) -> Student:
         self.students_by_id[student.id] = student
@@ -484,6 +493,76 @@ async def test_student_can_patch_own_profile(
     assert profile.phone == "0411111111"
 
 
+async def test_student_can_save_valid_existing_country_id(
+    student_api_client: AsyncClient,
+    t005_state: StudentApiState,
+) -> None:
+    profile = t005_state.student_repository.profiles_by_student_id[t005_state.student.id]
+    profile.country_id = None
+
+    response = await student_api_client.patch(
+        "/api/v1/students/me/profile",
+        headers=_headers_for(t005_state.users["student"].id),
+        json={"country_id": str(t005_state.country.id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["country_id"] == str(t005_state.country.id)
+    assert profile.country_id == t005_state.country.id
+
+
+async def test_unknown_country_id_returns_404(
+    student_api_client: AsyncClient,
+    t005_state: StudentApiState,
+) -> None:
+    unknown_country_id = uuid4()
+
+    response = await student_api_client.patch(
+        "/api/v1/students/me/profile",
+        headers=_headers_for(t005_state.users["student"].id),
+        json={"country_id": str(unknown_country_id)},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Country was not found",
+            "details": None,
+        }
+    }
+
+
+async def test_unknown_country_id_does_not_return_500(
+    student_api_client: AsyncClient,
+    t005_state: StudentApiState,
+) -> None:
+    response = await student_api_client.patch(
+        "/api/v1/students/me/profile",
+        headers=_headers_for(t005_state.users["student"].id),
+        json={"country_id": str(uuid4())},
+    )
+
+    assert response.status_code != 500
+    assert response.status_code == 404
+
+
+async def test_null_country_id_remains_valid_and_clears_profile_country(
+    student_api_client: AsyncClient,
+    t005_state: StudentApiState,
+) -> None:
+    response = await student_api_client.patch(
+        "/api/v1/students/me/profile",
+        headers=_headers_for(t005_state.users["student"].id),
+        json={"country_id": None},
+    )
+
+    profile = t005_state.student_repository.profiles_by_student_id[t005_state.student.id]
+    assert response.status_code == 200
+    assert response.json()["country_id"] is None
+    assert profile.country_id is None
+    assert t005_state.student_repository.country_exists_calls == []
+
 async def test_student_cannot_change_restricted_student_fields(
     student_api_client: AsyncClient,
     t005_state: StudentApiState,
@@ -797,6 +876,50 @@ async def test_postgresql_demo_student_resolves_through_authenticated_user(
         await _dispose_cached_database_engine()
         get_settings.cache_clear()
 
+
+@pytest.mark.skipif(
+    os.getenv("RUN_POSTGRES_TESTS") != "1",
+    reason="Set RUN_POSTGRES_TESTS=1 to run PostgreSQL student API integration tests.",
+)
+async def test_postgresql_unknown_profile_country_id_returns_404_not_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("DEMO_USER_PASSWORD", TEST_PASSWORD)
+    get_settings.cache_clear()
+
+    try:
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            await seed_development_data(session, demo_user_password=TEST_PASSWORD)
+
+        app = create_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            login_response = await client.post(
+                "/api/v1/auth/login",
+                json={"email": DEMO_STUDENT_EMAIL, "password": TEST_PASSWORD},
+            )
+            token = login_response.json()["access_token"]
+            response = await client.patch(
+                "/api/v1/students/me/profile",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"country_id": str(uuid4())},
+            )
+
+        assert login_response.status_code == 200
+        assert response.status_code != 500
+        assert response.status_code == 404
+        assert response.json()["error"] == {
+            "code": "NOT_FOUND",
+            "message": "Country was not found",
+            "details": None,
+        }
+    finally:
+        await _dispose_cached_database_engine()
+        get_settings.cache_clear()
 
 def _user(email: str) -> User:
     return User(
